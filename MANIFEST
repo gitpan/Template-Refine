@@ -27,12 +27,12 @@ Makefile.PL
 MANIFEST			This list of files
 MANIFEST.SKIP
 META.yml
-README
 t/00-load.t
 t/author/pod-coverage.t
 t/author/pod.t
 t/file.t
 t/fragment-basic.t
+t/fragment-coerce.t
 t/process-basic.t
 t/selectors-basic.t
 t/synopsis.t

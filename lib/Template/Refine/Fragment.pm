@@ -1,13 +1,31 @@
 package Template::Refine::Fragment;
 use Moose;
+use Moose::Util::TypeConstraints;
+
 use XML::LibXML;
 use Path::Class qw(file);
+use List::Util qw(first);
 use namespace::clean -except => ['meta'];
+
+my $parser = XML::LibXML->new;
+$parser->no_network(1);
+
+class_type 'XML::LibXML::DocumentFragment';
+class_type 'XML::LibXML::Node';
+
+coerce 'XML::LibXML::DocumentFragment',
+  => from 'XML::LibXML::Node',
+  => via {
+      my $f = XML::LibXML::DocumentFragment->new;
+      $f->addChild( $_->cloneNode(1) );
+      return $f;
+  };
 
 has fragment => (
     isa      => 'XML::LibXML::DocumentFragment',
     is       => 'ro',
     required => 1,
+    coerce   => 1,
 );
 
 sub new_from_dom {
@@ -27,26 +45,34 @@ sub new_from_file {
 
 sub _parse_html {
     my $template = shift;
-    return _extract_body(XML::LibXML->new->parse_html_string($template));
+    return _extract_body($parser->_parse_html_string($template, undef, undef, 0));
 }
 
 sub _extract_body {
     my $doc = shift;
-    my $xc = XML::LibXML::XPathContext->new($doc);
-    my (@nodes) = $xc->findnodes('/html/body/*');
+    my $html = $doc->documentElement;
+    return $html unless $html->nodeName eq 'html';
 
-    return XML::LibXML->new->parse_balanced_chunk(join '', map { $_->toString } @nodes);
+    my $body = first { $_->nodeName eq 'body' } $html->childNodes;
+    confess 'error finding body' unless $body;
+    my $frag = XML::LibXML::DocumentFragment->new;
+    $frag->addChild($_) for $body->childNodes;
+    return $frag;
 }
 
 sub _to_document {
     my $frag = shift;
-    # XXX: HACK: fix this
-    return XML::LibXML->new->parse_html_string($frag->toString);
+    my $doc = XML::LibXML::Document->new;
+    my $html = XML::LibXML::Element->new('html');
+    my $body = XML::LibXML::Element->new('body');
+    $doc->setDocumentElement( $html );
+    $html->addChild( $body );
+    $body->addChild( $frag->cloneNode(1) );
+    return $doc;
 }
 
 sub process {
     my ($self, @rules) = @_;
-
     my $dom = _to_document($self->fragment); # make full doc so that "/" is meaningful
     $_->process($dom) for @rules;
     return $self->new_from_dom($dom);
@@ -56,6 +82,8 @@ sub render {
     my $self = shift;
     return $self->fragment->toString;
 }
+
+__PACKAGE__->meta->make_immutable;
 
 1;
 
@@ -118,7 +146,7 @@ Return the C<XML::LibXML::DocumentFragment> that backs this object.
 
 =head2 process( @rules )
 
-Apply C<Template::Refine::Process::Rule>s in C<@rules> and return a
+Apply C<Template::Refine::Processor::Rule>s in C<@rules> and return a
 new C<Template::Refine::Fragment>.
 
 =head2 render
